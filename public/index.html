@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tài Xỉu Game</title>
+  </head>
+  <body>
+    <div id="loginSection">
+      <h2>Đăng nhập</h2>
+      <input type="text" id="username" placeholder="Nhập tên người dùng" />
+      <button onclick="register()">Đăng nhập</button>
+    </div>
+
+    <div id="gameSection" style="display: none">
+      <h2>Chào mừng, <span id="currentUser"></span></h2>
+      <div>Số dư: <span id="balance"></span></div>
+
+      <div>
+        <h3>Đặt cược</h3>
+        <input
+          type="number"
+          id="betAmount"
+          placeholder="Số tiền cược"
+          min="1"
+        />
+        <button onclick="bet('tai')">Tài</button>
+        <button onclick="bet('xiu')">Xỉu</button>
+      </div>
+
+      <div id="status"></div>
+      <div id="history"></div>
+
+      <div id="adminSection" style="display: none">
+        <h3>Admin - Chọn kết quả</h3>
+        <input type="password" id="adminPass" placeholder="Mật khẩu admin" />
+        <button onclick="setResult('tai')">Tài</button>
+        <button onclick="setResult('xiu')">Xỉu</button>
+        <button onclick="setResult(null)">Random</button>
+      </div>
+
+      <div>
+        <h3>Nạp tiền</h3>
+        <input
+          type="number"
+          id="depositAmount"
+          placeholder="Số tiền nạp"
+          min="1"
+        />
+        <button onclick="deposit()">Nạp tiền</button>
+      </div>
+    </div>
+
+    <script>
+      let currentUser = "";
+      let isAdmin = false;
+      let statusInterval = null;
+
+      function register() {
+        const username = document.getElementById("username").value.trim();
+        if (!username) {
+          alert("Vui lòng nhập tên!");
+          return;
+        }
+        fetch("/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username }),
+        })
+          .then((res) => res.json())
+          .then((data) => {
+            if (data.success) {
+              currentUser = username;
+              isAdmin = username === "admin";
+              document.getElementById("currentUser").innerText = currentUser;
+              document.getElementById("balance").innerText = data.balance;
+              document.getElementById("loginSection").style.display = "none";
+              document.getElementById("gameSection").style.display = "block";
+              if (isAdmin) {
+                document.getElementById("adminSection").style.display = "block";
+              }
+              updateStatus();
+              if (!statusInterval) {
+                statusInterval = setInterval(updateStatus, 5000);
+              }
+            } else {
+              alert(data.error || "Đăng nhập thất bại!");
+            }
+          });
+      }
+
+      function deposit() {
+        const amount = parseInt(document.getElementById("depositAmount").value);
+        if (!amount || amount <= 0) {
+          alert("Vui lòng nhập số tiền nạp hợp lệ!");
+          return;
+        }
+        fetch("/deposit", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username: currentUser, amount }),
+        })
+          .then((res) => res.json())
+          .then((data) => {
+            if (data.success) {
+              document.getElementById("balance").innerText = data.balance;
+            } else {
+              alert(data.error || "Nạp tiền thất bại!");
+            }
+          });
+      }
+
+      function bet(type) {
+        const amount = parseInt(document.getElementById("betAmount").value);
+        if (!amount || amount <= 0) {
+          alert("Vui lòng nhập số tiền cược hợp lệ!");
+          return;
+        }
+        fetch("/bet", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            username: currentUser,
+            betType: type,
+            betAmount: amount,
+          }),
+        })
+          .then((res) => res.json())
+          .then((data) => {
+            if (data.success) {
+              // Gọi lại /register để cập nhật số dư mới
+              fetch("/register", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ username: currentUser }),
+              })
+                .then((res) => res.json())
+                .then((userData) => {
+                  if (userData.success) {
+                    document.getElementById("balance").innerText =
+                      userData.balance;
+                  }
+                });
+              updateStatus();
+            } else {
+              alert(data.error || "Đặt cược thất bại!");
+            }
+          });
+      }
+
+      function setResult(result) {
+        const password = document.getElementById("adminPass").value;
+        fetch("/admin/set-result", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ password, result }),
+        })
+          .then((res) => res.json())
+          .then((data) => {
+            if (data.success) {
+              updateStatus();
+            } else {
+              alert(data.error || "Chọn kết quả thất bại!");
+            }
+          });
+      }
+
+      function loadHistory() {
+        fetch("/history")
+          .then((res) => res.json())
+          .then((data) => {
+            const historyDiv = document.getElementById("history");
+            historyDiv.innerHTML =
+              "<b>Lịch sử:</b><br>" +
+              (data.history || [])
+                .map(
+                  (h, i) =>
+                    `Ván ${h.round}: ${
+                      h.result === "tai"
+                        ? "Tài"
+                        : h.result === "xiu"
+                        ? "Xỉu"
+                        : "Hòa"
+                    } | Xúc xắc: ${h.dice.join(" - ")} | Tổng: ${h.total}`
+                )
+                .join("<br>");
+          });
+      }
+
+      function updateStatus() {
+        fetch("/status")
+          .then((res) => res.json())
+          .then((data) => {
+            document.getElementById("status").innerHTML = `
+            <div>Ván hiện tại: <b>${
+              data.round
+            }</b> | Thời gian còn lại: <b>${Math.max(
+              0,
+              Math.floor(data.timeLeft / 1000)
+            )}s</b></div>
+            <div>Đặt cược hiện tại:</div>
+            <ul>
+              ${data.bets
+                .map(
+                  (b) =>
+                    `<li>${b.username}: ${
+                      b.betType === "tai" ? "Tài" : "Xỉu"
+                    } (${b.betAmount})</li>`
+                )
+                .join("")}
+            </ul>
+            <div>${
+  (isAdmin && data.nextResult)
+                ? "Admin đã chọn kết quả ván này: " +
+                  (data.nextResult === "tai" ? "Tài" : "Xỉu")
+                : ""
+            }</div>
+          `;
+
+            loadHistory();
+
+            // Cập nhật số dư mới
+            fetch("/register", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ username: currentUser }),
+            })
+              .then((res) => res.json())
+              .then((userData) => {
+                if (userData.success) {
+                  document.getElementById("balance").innerText =
+                    userData.balance;
+                }
+              });
+          });
+      }
+    </script>
+  </body>
+</html>
